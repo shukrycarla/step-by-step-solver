@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Step-by-Step Solver</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--ink:#1c2233;--mute:#667;--acc:#4f46e5;--acc2:#e0e7ff;--line:#e3e6ef;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12141c;--card:#1b1f2b;--ink:#eceef6;--mute:#9aa1b5;--acc:#8b93ff;--acc2:#2a2f4d;--line:#2c3142}}
+:root[data-theme="dark"]{--bg:#12141c;--card:#1b1f2b;--ink:#eceef6;--mute:#9aa1b5;--acc:#8b93ff;--acc2:#2a2f4d;--line:#2c3142}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:1.6rem;margin:8px 0 4px}
+.sub{color:var(--mute);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;background:var(--bg);color:var(--ink);resize:vertical}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+select{padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 14px}
+button.p{background:var(--acc);color:#fff;border-color:var(--acc);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.step{border-left:4px solid var(--acc);padding-left:12px;margin:14px 0}
+.step h3{margin:0 0 4px;font-size:1.05rem}
+.num{display:inline-block;background:var(--acc);color:#fff;border-radius:50%;width:24px;height:24px;text-align:center;font-size:.85rem;line-height:24px;margin-right:6px}
+.eq{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--acc2);padding:8px 10px;border-radius:8px;margin:6px 0;overflow-x:auto;white-space:pre}
+.vis{background:#fff;border:1px solid var(--line);border-radius:10px;margin-top:8px;padding:6px;text-align:center}
+.vis img{max-width:100%;height:auto}
+.ans{background:var(--acc2);border-radius:12px;padding:12px 14px;font-weight:600}
+.mute{color:var(--mute);font-size:.9rem}
+a.btn{display:inline-block;text-decoration:none;border:1px solid var(--line);border-radius:10px;padding:9px 14px;color:var(--ink);background:var(--card)}
+.err{color:#c0392b}
+.chips button{font-size:.85rem;padding:5px 10px}
+#file{display:none}
+#prev{display:none;margin-top:10px;position:relative;width:max-content;max-width:100%}
+#prev img{max-width:100%;max-height:220px;border-radius:10px;border:1px solid var(--line);display:block}
+#prev button{position:absolute;top:6px;right:6px;padding:2px 9px;border-radius:50%}
+</style>
+</head>
+<body>
+<main>
+  <h1>📚 Step-by-Step Solver</h1>
+  <p class="sub">Type a math, physics, or chemistry question, or upload a photo of it. Get the solution one step at a time, with diagrams and videos.</p>
+
+  <div class="card">
+    <textarea id="q" placeholder="Type your question, or just upload a photo. e.g. Solve 2x² − 5x − 3 = 0   |   A 2 kg ball falls 5 m. What is its speed? |   Balance: Fe + O₂ → Fe₂O₃"></textarea>
+    <input type="file" id="file" accept="image/*">
+    <div id="prev"><img id="pimg" alt="Your uploaded question"><button id="rm" title="Remove photo">✕</button></div>
+    <div class="row">
+      <button id="photo">📷 Upload or take a photo</button>
+    </div>
+    <div class="row">
+      <select id="subj"><option>Auto-detect</option><option>Math</option><option>Physics</option><option>Chemistry</option></select>
+      <select id="lvl"><option>Middle school</option><option selected>High school</option><option>College</option></select>
+      <button class="p" id="go">Solve step by step</button>
+    </div>
+    <div class="row chips mute">Try:
+      <button data-q="Solve 2x^2 - 5x - 3 = 0">Quadratic</button>
+      <button data-q="A car accelerates from rest at 3 m/s^2 for 8 s. How far does it travel?">Kinematics</button>
+      <button data-q="Balance the equation: Fe + O2 -> Fe2O3">Balancing</button>
+    </div>
+  </div>
+
+  <div id="out"></div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const out = $('#out');
+let ctrl = null;
+
+document.querySelectorAll('.chips button').forEach(b => b.onclick = () => { $('#q').value = b.dataset.q; });
+$('#go').onclick = solve;
+
+const esc = t => String(t ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+let imgBlob = null;
+$('#photo').onclick = () => $('#file').click();
+$('#rm').onclick = () => { imgBlob = null; $('#prev').style.display = 'none'; $('#file').value = ''; };
+$('#file').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const url = URL.createObjectURL(f);
+    const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const s = Math.min(1, 1600 / Math.max(im.width, im.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(im.width * s); c.height = Math.round(im.height * s);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    imgBlob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+    $('#pimg').src = URL.createObjectURL(imgBlob);
+    $('#prev').style.display = 'block';
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    imgBlob = null;
+    out.innerHTML = '<div class="card err">Could not read that image. Try a JPG or PNG.</div>';
+  }
+};
+
+async function solve() {
+  const q = $('#q').value.trim();
+  if (!q && !imgBlob) return;
+  const sample = await (window.claude ? window.claude.use('sample') : null);
+  if (!sample) { out.innerHTML = '<div class="card err">This page needs to be opened in Claude to answer questions.</div>'; return; }
+  let useImg = false;
+  if (imgBlob) {
+    try { useImg = !!(await sample.limits()).images; } catch (e) { useImg = false; }
+    if (!useImg) { out.innerHTML = '<div class="card err">Photo upload isn\'t available here. Please type the question instead.</div>'; return; }
+  }
+  if (ctrl) ctrl.abort();
+  ctrl = new AbortController();
+  $('#go').disabled = true;
+  out.innerHTML = '<div class="card mute">Working through it…</div>';
+
+  const prompt = `You are a patient tutor. Student level: ${$('#lvl').value}. Subject: ${$('#subj').value}.
+${useImg ? "The question is in the attached photo. Read it carefully (handwriting, diagrams and all). If the text below is not empty it adds context." : ""}
+Question text: """${q}"""
+Solve it in clear small steps a student can follow. Return ONLY JSON:
+{"subject":"Math|Physics|Chemistry|Other","topic":"short topic name","steps":[{"title":"short action title","explain":"1-3 sentences explaining WHY","work":"the actual equation/calculation for this step in plain text (use ^ for powers, sqrt() etc.), may be empty","svg":"OPTIONAL simple self-contained <svg viewBox=...> diagram (free-body diagram, graph sketch, number line, molecule/atom sketch, geometry figure) with explicit colors and labels, under 1500 characters, or empty string"}],"answer":"final answer with units","check":"one-sentence way to verify the answer","video_query":"good YouTube search phrase for this exact concept"}
+Use 3-8 steps. Include an svg for at least the steps where a picture really helps (especially physics and geometry). If the question is not a math/science problem, still return the JSON with a brief helpful step.`;
+
+  try {
+    const d = await sample.json(prompt, { signal: ctrl.signal, cache: false, modelTier: 'default', ...(useImg ? { images: [imgBlob] } : {}) });
+    render(d, q || d.topic);
+  } catch (e) {
+    out.innerHTML = '<div class="card err">Sorry, something went wrong' + (e && e.code === 'not_granted' ? ' (permission was declined)' : '') + '. Please try again.</div>';
+  }
+  $('#go').disabled = false;
+}
+
+function render(d, q) {
+  const steps = Array.isArray(d.steps) ? d.steps : [];
+  let shown = 1;
+  const wrap = document.createElement('div');
+  wrap.className = 'card';
+  const head = `<div class="mute">${esc(d.subject)} · ${esc(d.topic)}</div>`;
+  wrap.innerHTML = head + '<div id="steps"></div><div class="row" id="ctl"></div><div id="fin"></div>';
+  out.innerHTML = '';
+  out.appendChild(wrap);
+  const box = wrap.querySelector('#steps'), ctl = wrap.querySelector('#ctl'), fin = wrap.querySelector('#fin');
+
+  function draw() {
+    box.innerHTML = '';
+    steps.slice(0, shown).forEach((s, i) => {
+      const el = document.createElement('div');
+      el.className = 'step';
+      let h = `<h3><span class="num">${i + 1}</span>${esc(s.title)}</h3><div>${esc(s.explain)}</div>`;
+      if (s.work) h += `<div class="eq">${esc(s.work)}</div>`;
+      el.innerHTML = h;
+      if (s.svg && /^\s*<svg/i.test(s.svg)) {
+        const b = document.createElement('button');
+        b.textContent = '👁 Show visual';
+        let open = false, v = null;
+        b.onclick = () => {
+          open = !open;
+          if (open) {
+            v = document.createElement('div');
+            v.className = 'vis';
+            const img = document.createElement('img');
+            img.alt = 'Diagram for step ' + (i + 1);
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s.svg);
+            v.appendChild(img);
+            el.appendChild(v);
+            b.textContent = '🙈 Hide visual';
+          } else { v.remove(); b.textContent = '👁 Show visual'; }
+        };
+        el.appendChild(b);
+      }
+      box.appendChild(el);
+    });
+    ctl.innerHTML = '';
+    if (shown < steps.length) {
+      const n = document.createElement('button'); n.className = 'p'; n.textContent = 'Next step →';
+      n.onclick = () => { shown++; draw(); };
+      const all = document.createElement('button'); all.textContent = 'Show all steps';
+      all.onclick = () => { shown = steps.length; draw(); };
+      ctl.append(n, all);
+      fin.innerHTML = '';
+    } else {
+      fin.innerHTML = `<div class="ans">✅ Answer: ${esc(d.answer)}</div>` +
+        (d.check ? `<p class="mute">Check it: ${esc(d.check)}</p>` : '');
+      const vq = encodeURIComponent(d.video_query || q);
+      ctl.innerHTML = `<a class="btn" target="_blank" rel="noopener" href="https://www.youtube.com/results?search_query=${vq}">▶ Watch a video on this</a>`;
+      const again = document.createElement('button'); again.textContent = '↺ Start over';
+      again.onclick = () => { shown = 1; draw(); };
+      ctl.appendChild(again);
+    }
+  }
+  draw();
+}
+</script>
+</body>
+</html>
